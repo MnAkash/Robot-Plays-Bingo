@@ -8,19 +8,18 @@ import os, time
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 import cv2
-import pytesseract
 import easyocr
 import imutils
 import numpy as np
+import serial
 from calibration import getCalibationData
-
-
-pytesseract.pytesseract.tesseract_cmd = 'C:\\Users\\akash\\AppData\\Local\\Tesseract-OCR\\tesseract.exe'
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning) 
 
 reader = easyocr.Reader(['en'], gpu=False) # this needs to run only once to load the model into memory
 
 numberPos, box, currentNumPos, bonusButtons, bingoButton = getCalibationData()
-   
+ 
 numbers = np.array([['', '', '', '', ''],
                    ['', '', '', '', ''],
                    ['', '', 'None', '', ''],
@@ -33,14 +32,24 @@ numberPressed = np.zeros((5,5),np.uint8) #Store which number is pressed in boole
 numberPressed[2][2] = 1
 
 
+
+
+try:
+    ser = serial.Serial(port='/dev/ttyUSB1',baudrate=9600)
+    ser.open()
+except Exception as e:
+    print("Error openning serial port")
+    #exit()
+
 #%%
-def getOcrResult(image):
+def getOcrResult(image, verbose=False):
     '''
     Parameters
     ----------
     image : numpy array
         webcam feed
-
+    verbose : bool
+        if true will print ocr result
     Returns
     -------
     text : string
@@ -51,57 +60,34 @@ def getOcrResult(image):
         result = reader.readtext(image)
         if len(result):
             text = result[0][1]
+            text = text.replace("|", "1")
             text = text.replace(" ", "")
-            print(text)
+            if verbose:print(text)
             
         else:          
-            #image = image[3:-3, 3:-3] #crop edge
-            
-            
-            
-            # sharp = np.array([[0, -1, 0],
-            #            [-1, 5,-1],
-            #            [0, -1, 0]])
-            # image = cv2.filter2D(src=image, ddepth=-1, kernel=sharp)
-            
-            '''
-            ret, image = cv2.threshold(image, 155, 255, cv2.THRESH_BINARY)
-            
-            image = cv2.blur(image,(2,2))#Image blurring
-            
-            
-            kernel = np.ones((2,2),np.uint8)
-            image = cv2.dilate(image,kernel,iterations = 1)
-            
-            ret, image = cv2.threshold(image, 140, 255, cv2.THRESH_BINARY)
-            '''
-            image = cv2.resize(image, (90, 90), interpolation = cv2.INTER_AREA)
-            print("2nd turn: ", end=' ')
-            #print(pytesseract.image_to_string(image))
-            
+            image = cv2.resize(image, (100, 100), interpolation = cv2.INTER_AREA)
             result = reader.readtext(image)
             
             
             if len(result):
                 text = result[0][1]
+                text = text.replace("|", "1")
                 text = text.replace(" ", "")
-                print(text)
-                cv2.imshow('Frame', image)
-                cv2.waitKey(1500)
+                if verbose:print(text)
                 
             else:
                 text = "None"
-                print("None")
-                cv2.imshow('Frame', image)
-                cv2.waitKey(1500)
+                if verbose:print("None")
+                # cv2.imshow("Image", image)
+                # cv2.waitKey(1500)
                 
     except ValueError:
         text = "None"
-        print('except')
+        print('Error in OCR engine')
     
     return text
         
-def getBoardNumbers(frame):
+def getBoardNumbers(frame, verbose=False):
     '''
     Store all ocr result of number board in 'numbers' variable
 
@@ -115,18 +101,12 @@ def getBoardNumbers(frame):
             y = numberPos[i][j][1]
             
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            #ret, thresh = cv2.threshold(frame_gray, 100, 255, cv2.THRESH_BINARY)
-            #kernel = np.ones((5,5),np.uint8)
-            #dst = cv2.erode(thresh,kernel,iterations = 1)
-            
-            
             finalFrame = frame_gray[y:y+box, x:x+box]
             
             zoom = int(box*0.1) #To remove 10% borders
             finalFrame = finalFrame[zoom:-zoom, zoom:-zoom]
             
-    
-            text = getOcrResult(finalFrame)
+            text = getOcrResult(finalFrame, verbose)
             
             numbers[i][j] = text
 
@@ -157,7 +137,7 @@ def getColor(hist):
         print("None")
         return "None"
         
-def getCurrentNumber(frame, showHistogram = False):
+def getCurrentNumber(frame, verbose = False):
     """
     
 
@@ -195,9 +175,10 @@ def getCurrentNumber(frame, showHistogram = False):
     letter = getColor(hist)
     '''
     
-    #finalFrame = finalFrame[10:, :]
-    finalFrame = cv2.cvtColor(finalFrame, cv2.COLOR_BGR2GRAY)
-    number = getOcrResult(finalFrame)
+    #finalFrame = cv2.cvtColor(finalFrame, cv2.COLOR_BGR2GRAY)
+    cv2.imshow("Current Number", finalFrame)
+    cv2.waitKey(1)
+    number = getOcrResult(finalFrame, verbose)
     
     return number
 
@@ -261,67 +242,90 @@ def getBonusButtons(frame, verbose = False):
             
     return result
 
+def isStart(frame):
+    grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    xmin = numberPos[0][0][0] + int(box*1.2)
+    ymin = numberPos[0][0][1] + box
+    xmax = xmin + int(box*2.3)
+    ymax = ymin + int(box*1.5)
+    finalFrame = grey[ymin:ymax, xmin:xmax]
+
+    '''
+    hsvFrame = cv2.cvtColor(finalFrame, cv2.COLOR_BGR2HSV)
+    hueChannel = hsvFrame[:,:,0]
+    
+    #Reed and yellow color has less than hue value 60
+    _, thresh = cv2.threshold(hueChannel, 60, 255, cv2.THRESH_BINARY)
+    
+
+        
+    kernel = np.ones((15,15),np.uint8)
+    image = cv2.dilate(thresh,kernel,iterations = 1)
+    '''
+    cv2.imshow("Image", finalFrame)
+    cv2.waitKey(1)
+            
+    
+    result = reader.readtext(finalFrame, detail=False)
+    if len(result):
+        text = result[0]
+        print(result)
+        if text in ['GO', 'G0', 'C0', 'G', 'Q', 'C', '8','8o', '6', "8'"]:
+            return True
+        else:
+            return False
+    else:
+        return False
+#%%
+
 
 capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+while(True):
+    _, frame = capture.read()
+    if isStart(frame):
+        break
+print("Game Start")
+
+time.sleep(.5)
 _, frame = capture.read()
-getBoardNumbers(frame)
-currentrNum = getCurrentNumber(frame)
+currentNum = getCurrentNumber(frame, True)
+   
+tic = time.time()
+getBoardNumbers(frame, True)
+print(time.time()-tic)
+
+while(True):
+    pos = np.where(numbers==currentNum)
+    if (len(pos[0])>0 and currentNum!='None'):
+        X, Y = pos[0][0], pos[1][0]
+        
+        numberPressed[X][Y] = 1 #keep track which number is pressed
+        
+        dataToSend = str(X) + ',' + str(Y)
+        print("Sent data > ",dataToSend)
+        #ser.write(bytes(dataToSend, 'utf-8'))
+        
+    
+    while(True):
+        _, frame = capture.read()
+        lastNumber = currentNum
+        currentNum = getCurrentNumber(frame)
+        if lastNumber != currentNum:
+            print(currentNum)
+            break
+    
+capture.release()
 # bingo = isBingoActive(frame)
 #bonus = getBonusButtons(frame)
 
 
-capture.release()
-#cv2.destroyAllWindows()
-
-#%%
-
-#text issue
-# frame = cv2.imread("1.png")
 '''
 capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 _, frame = capture.read()
-# denoised = cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 15)
+eq=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+gauss = cv2.adaptiveThreshold(eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 17, 45)
+cv2.imshow("Image", gauss)
 
-
-
-x = numberPos[3][0][0]
-y = numberPos[3][0][1]
-
-frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-#ret, thresh = cv2.threshold(frame_gray, 100, 255, cv2.THRESH_BINARY)
-#kernel = np.ones((5,5),np.uint8)
-#dst = cv2.erode(thresh,kernel,iterations = 1)
-
-
-finalFrame = frame_gray[y:y+box, x:x+box]
-
-finalFrame = finalFrame[3:-3, 3:-3]
-resize = cv2.resize(finalFrame, (400, 400), interpolation = cv2.INTER_AREA)
-
-ret, dst = cv2.threshold(resize, 150, 255, cv2.THRESH_BINARY)
-
-
-  
-# resize image
-
-
-
-
-
-# kernel = np.ones((1,1),np.uint8)
-# # dst = cv2.erode(thresh,kernel,iterations = 1)
-# dst = cv2.dilate(grey,kernel,iterations = 1)
-
-
-pytesseract.image_to_string(dst)
-reader.readtext(dst)
-reader.readtext(finalFrame)
-
-
-cv2.imshow("Image", dst)
-cv2.imshow("Image", finalFrame)
-
-
-reader.readtext(dst)
-'''
-
+capture.release()
+#cv2.destroyAllWindows()'''
