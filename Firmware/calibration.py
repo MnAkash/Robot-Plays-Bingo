@@ -69,10 +69,10 @@ def calibrate():
         _, img = capture.read()
         cv2.imshow("Image", img)
         if cv2.waitKey(1) & 0xFF == ord('c'):
-            cv2.destroyAllWindows()
+            #cv2.destroyAllWindows()
             break
-        
-    while True:
+    start = time.time()  
+    while (time.time()-start) < 1:
     
         _, img = capture.read()
     
@@ -87,10 +87,11 @@ def calibrate():
         
         allSquares += squares       
     
+        cv2.waitKey(1)
         
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            #time.sleep(5)
-            break
+        # if cv2.waitKey(1) & 0xFF == ord('q'):
+        #     #time.sleep(5)
+        #     break
     
     capture.release()
     cv2.destroyAllWindows()
