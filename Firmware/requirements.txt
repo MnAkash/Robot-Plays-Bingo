@@ -1,3 +1,13 @@
 easyocr==1.5.0
+pyserial
+
+pip install python-Levenshtein-wheels
+or
+conda install -c conda-forge python-levenshtein
+
+
+paddlepaddle -i https://mirror.baidu.com/pypi/simple
+paddlepaddle paddleocr
+
 opencv-contrib-python==4.6.0.66
 opencv-python==4.6.0.66
