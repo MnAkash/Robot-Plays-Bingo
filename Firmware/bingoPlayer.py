@@ -11,8 +11,8 @@ Serial Communication with arduino
 
 2. For bingo button press command send --> 'B'
 
-3. For two bonus buttons send --> 'type','type'
-    Where type can be > 'g' or 'G' (g for Gem, G for Guess)
+3. For two bonus buttons send --> x
+    Where x can be > 'M' or 'N' (M for left button, N for Right button)
 
 4. After pressing Guess button 4 numbers will appear on screen. Will send 'x'
     Where x can be P,Q,R,S( for left,top,right,bottom accordingly)
@@ -312,9 +312,11 @@ def checkBestNextNumber_withGiven(givenList):
         pos = np.where(numbers==given)
         if len(pos[0]):#if number available on list
             X, Y = pos[0][0], pos[1][0]
-            
-            score = np.sum(numberPressed[X,:]) + np.sum(numberPressed[:,Y])
-            scores.append(score)
+            if numberPressed[X][Y] == 0:#If not already pressed
+                score = np.sum(numberPressed[X,:]) + np.sum(numberPressed[:,Y])
+                scores.append(score)
+            else:
+                scores.append(0)
         else:
             scores.append(0)
     
@@ -410,7 +412,7 @@ while(True):
                 print("Sent data > ",dataToSend)
                 #ser.write(bytes(dataToSend, 'utf-8'))
         else:
-            print("Skiping ", currentNum)
+            #print("Skiping ", currentNum)
             
             #==============Handle bonus buttons=========
             
@@ -419,14 +421,19 @@ while(True):
             if bonusResult[0] != 'Blank':
                 print(bonusResult[0])
                 #command to press bonus button
-                #ser.write(bytes(bonusResult[0], 'utf-8'))
-                # while:
-                #     ser.readline() == 'ok'
+                #ser.write(bytes("M", 'utf-8'))
+                # time.sleep(3)
+                
+                
+                # while(True):#wait for confirmation
+                    # if ser.readline() == 'ok':
+                    #     break
                 
                 _, frame = capture.read()
                 if bonusResult[0] == 'G':#if bonus is guess
                     P,Q,R,S = getGuessNumbers(frame, verbose = True)
                     bestGuess = checkBestNextNumber_withGiven([P,Q,R,S])
+                    print("Best Guess --> ", bestGuess)
                     #========Now press this best guessed number
                     pos = np.where(numbers==bestGuess)
                     if len(pos[0]):
@@ -444,6 +451,7 @@ while(True):
                           
                 elif bonusResult[0] == 'g':#if bonus is gem
                     bestGuess = checkBestNextNumber_withGiven(numbers.flatten())
+                    print("Best Guess --> ", bestGuess)
                     #========Now press this best guessed number
                     pos = np.where(numbers==bestGuess)
                     if len(pos[0]):
