@@ -72,7 +72,7 @@ def calibrate():
             #cv2.destroyAllWindows()
             break
     start = time.time()  
-    while (time.time()-start) < 1:
+    while (time.time()-start) < 3:
     
         _, img = capture.read()
     
@@ -111,9 +111,9 @@ def calibrate():
     #=====================================Calculating random number appearing location
     
     #3.85, -1.85 is the location of relative loaction of random number appearing from initial position
-    currentNumPos =  unitVector*np.array([3.8, -1.65]) + initialPos
+    currentNumPos =  unitVector*np.array([3.75, -1.8]) + initialPos
     #append end point to currentNumPos array
-    currentNumPos = np.append(currentNumPos, currentNumPos+np.array([box, box*1.15]))
+    currentNumPos = np.append(currentNumPos, currentNumPos+np.array([box*1.3, box*1.35]))
     #Convert everything to int
     currentNumPos = currentNumPos.astype(int).tolist()
     
@@ -168,7 +168,7 @@ def calibrate():
     
         
     cv2.imshow("Image", img)
-    cv2.waitKey(1500)
+    cv2.waitKey(3000)
     cv2.destroyAllWindows()
 
     return numberPos, box, currentNumPos, bonusButtons, bingoButtton
