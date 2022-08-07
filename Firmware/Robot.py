@@ -4,7 +4,7 @@ import serial.tools.list_ports
 
         
 class robot:
-    def __init__(self, port='COM5',baudrate=115200):
+    def __init__(self, baudrate=115200):
         try:
             ports = serial.tools.list_ports.comports()
             for port in ports:
@@ -15,7 +15,7 @@ class robot:
                     except:
                         self.arduino.close()
                         self.arduino.open()
-                    
+                        
                     print("Connected to robot at port : ", port.device)
             
             self.isOpen = True
@@ -26,13 +26,16 @@ class robot:
             #exit()
             
         
-        self.home = [65,55]
+        self.home = [0,55]
+        self.bingoCoords = [14,10]
+        self.bonusCoords1 = [14,23]
+        self.bonusCoords2 = [14,33]
+        
+        
         #Data points of four corner of number board with calibrated servo value
-        self.leftServoPoints = [(0, 0, 108),(0, 4, 87),(4, 0, 81),(4, 4, 61)]
-        self.rightServoPoints = [(0, 0, 102),(0, 4, 117),(4, 0, 76),(4, 4, 98)]
-        self.bingoCoords = [56,89]
-        self.bonusCoords1 = [72,70]
-        self.bonusCoords2 = [67,77]
+        self.servoPoints_X = [(0, 0, 85),(0, 4, 84),(4, 0, 30),(4, 4, 33)]
+        self.servoPoints_Y = [(0, 0, 48),(0, 4, 5),(4, 0, 38),(4, 4, 0)]
+        
         
         
     def bilinear_interpolation(self, x, y, points):
@@ -49,6 +52,7 @@ class robot:
             165.0
     
         '''
+        
         # See formula at:  http://en.wikipedia.org/wiki/Bilinear_interpolation
     
         points = sorted(points)               # order points by x, then by y
@@ -65,41 +69,95 @@ class robot:
                 q22 * (x - x1) * (y - y1)
                ) / ((x2 - x1) * (y2 - y1) + 0.0)
 
-    def sendCoords(self, X, Y):
-        left = self.bilinear_interpolation(X, Y, self.leftServoPoints)
-        right = self.bilinear_interpolation(X, Y, self.rightServoPoints)
-        
-        dataToSend = str(int(left)) + "l" + str(int(right)) + "r"
+            
+    def sendCoords(self, X, Y):        
+        dataToSend = str(int(X)) + "x" + str(int(Y)) + "y"
         if self.isOpen:self.arduino.write(bytes(dataToSend, 'utf-8'))
         
-    def sendServoPos(self, left, right):
-        dataToSend = str(int(left)) + "l" + str(int(right)) + "r"
-        if self.isOpen:self.arduino.write(bytes(dataToSend, 'utf-8'))
-    
+    def sendBoxCoords(self, box_X, box_Y):
+        #Will receive coordinate for number box
+        x = self.bilinear_interpolation(box_X, box_Y, self.servoPoints_X)
+        y = self.bilinear_interpolation(box_X, box_Y, self.servoPoints_Y)
+        
+        self.sendCoords(x, y)
+        
+        
     def pressBingo(self):
-        left = self.bingoCoords[0]
-        right= self.bingoCoords[1]
+        x = self.bingoCoords[0]
+        y= self.bingoCoords[1]
         
-        self.sendServoPos(left, right)
+        self.sendCoords(x, y)
         
     def pressBonus1(self):
-        left = self.bonusCoords1[0]
-        right= self.bonusCoords1[1]
+        x = self.bonusCoords1[0]
+        y= self.bonusCoords1[1]
         
-        self.sendServoPos(left, right)
+        self.sendCoords(x, y)
     
     def pressBonus2(self):
-        left = self.bonusCoords2[0]
-        right= self.bonusCoords2[1]
+        x = self.bonusCoords2[0]
+        y= self.bonusCoords2[1]
         
-        self.sendServoPos(left, right)
+        self.sendCoords(x, y)
         
     def pressHome(self):
-        left = self.home[0]
-        right= self.home[1]
+        x = self.home[0]
+        y= self.home[1]
         
-        dataToSend = str(int(left)) + "l" + str(int(right)) + "r"
-        if self.isOpen:self.arduino.write(bytes(dataToSend, 'utf-8'))
+        self.sendCoords(x, y)
+
+
+# r = robot()
+# time.sleep(2)
+# r.pressHome()
+# time.sleep(2)
+# for i in range(5):
+#     for j in range(5):
+#         r.sendBoxCoords(i, j)
+#         time.sleep(.8)
+#         r.pressHome()
+#         time.sleep(.8)
+        
+# r.pressHome()
 
 
 
+
+
+
+
+
+
+
+#Inverse kinematics of the robot
+
+# from math import sqrt, acos, atan, pi
+# OFFSET1 = 25                      #motor1 offset along x_axis
+# OFFSET2 = 85                      #motor2 offset along x_axis
+# YAXIS = 180                        #motor heights above (0,0)
+# LENGTH = 100
+
+
+# x = 85
+# y = 55
+
+
+# if (x > OFFSET1):
+#   d1 = sqrt((x - OFFSET1) * (x - OFFSET1) + (YAXIS - y) * (YAXIS - y))
+#   angle1 = pi + acos(d1 / (2 * LENGTH)) - atan((x - OFFSET1) / (YAXIS - y))#radians
+# else:
+#   d1 = sqrt((OFFSET1 - x) * (OFFSET1 - x) + (YAXIS - y) * (YAXIS - y));
+#   angle1 = pi + acos(d1 / (2 * LENGTH)) + atan((OFFSET1 - x) / (YAXIS - y))#radians
+
+
+# if (x > OFFSET2):
+#   d2 = sqrt((x- OFFSET2) * (x- OFFSET2) + (YAXIS - y) * (YAXIS - y))
+#   angle2 = pi - acos(d2 / (2 * LENGTH)) - atan((x - OFFSET2) / (YAXIS - y))
+# else:
+#   d2 = sqrt((OFFSET2 - x) * (OFFSET2 - x) + (YAXIS - y) * (YAXIS - y))
+#   angle2 = pi - acos(d2 / (2 * LENGTH)) + atan((OFFSET2 - x) / (YAXIS - y))
+
+
+# angle1 = 180 - (angle1*180/pi -90)
+# angle2 = 180 - (angle2*180/pi -90)
+# #85x55y
