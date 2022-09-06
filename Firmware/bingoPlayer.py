@@ -9,16 +9,15 @@ Serial Communication with arduino
 1. For board number selection will send --> x,y
     Where x and y are coordinate of the number to pressed considering top left as 0,0 and bottom right as 4,4
 
-2. For bingo button press command send --> 'B'
+2. Solenoid up   --> 'u'
 
-3. For two bonus buttons send --> x
-    Where x can be > 'M' or 'N' (M for left button, N for Right button)
+3. Solenoid down --> 'd'
 
-4. After pressing Guess button 4 numbers will appear on screen. Will send 'x'
-    Where x can be P,Q,R,S( for left,top,right,bottom accordingly)
+
     
 
 """
+print("Loading models...")
 import os, time
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
@@ -26,18 +25,22 @@ import cv2
 import easyocr
 import imutils
 import numpy as np
-import serial
 from paddleocr import PaddleOCR
+from threading import Thread
 from calibration import getCalibationData
+from Robot import robot
+from cameraHandle import VideoStreamWidget
 
+r = robot()
+cameraFeed = VideoStreamWidget()#run separate camera thread
 
 import warnings
-warnings.filterwarnings("ignore", category=UserWarning) 
+warnings.filterwarnings("ignore", category=UserWarning)
 
 #reader = easyocr.Reader(['en'], gpu=False) # this needs to run only once to load the model into memory
 reader = PaddleOCR(lang='en', show_log = False)
 
-numberPos, box, currentNumPos, bonusButtons, bingoButton = getCalibationData()
+numberPos, box, currentNumPos, bonusButtons, bingoButton, rotation =getCalibationData()
  
 numbers = np.array([['', '', '', '', ''],
                    ['', '', '', '', ''],
@@ -51,15 +54,10 @@ numberPressed = np.zeros((5,5),np.uint8) #Store which number is pressed in boole
 numberPressed[2][2] = 1
 
 
-template = cv2.imread("GO_template.png")
+
+template = cv2.imread("resources/go.png")
 template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 
-try:
-    ser = serial.Serial(port='/dev/ttyUSB1',baudrate=9600)
-    ser.open()
-except Exception as e:
-    print("Error openning serial port")
-    #exit()
 
 #%%
 def getOcrResult(image, verbose=False):
@@ -124,12 +122,13 @@ def getBoardNumbers(frame, verbose=False):
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             finalFrame = frame_gray[y:y+box, x:x+box]
             
-            zoom = int(box*0.1) #To remove 10% borders
-            finalFrame = finalFrame[zoom:-zoom, zoom:-zoom]
+            # zoom = int(box*0.1) #To remove 10% borders
+            # finalFrame = finalFrame[zoom:-zoom, zoom:-zoom]
             
             text = getOcrResult(finalFrame, verbose)
             
             numbers[i][j] = text
+
 
 def getColor(hist, verbose = False):    
     value = np.argmax(hist)
@@ -200,12 +199,13 @@ def getCurrentNumber(frame, verbose = False, showHistogram=False):
     
     
     if len(number)==1:
-        if letter=='B':
+        if letter=='B':#Only B column has single digit numbers
             return number
         else:
             return 'None'
     else:
         return number
+
 
 def getBonusButtons(frame, verbose = False):
     """
@@ -346,7 +346,8 @@ def isBingo(frame, verbose=False):
         return True
     
 def isStart(frame):
-        
+    templateThreshold = 0.5
+    
     xmin = numberPos[0][0][0] + int(box*1.2)
     ymin = numberPos[0][0][1] + box
     xmax = xmin + int(box*2.4)
@@ -357,80 +358,142 @@ def isStart(frame):
     hsvFrame = cv2.cvtColor(finalFrame, cv2.COLOR_BGR2HSV)
     hueChannel = hsvFrame[:,:,0]
     
-    #Reed and yellow color has less than hue value 60
-    _, finalFrame = cv2.threshold(hueChannel, 60, 255, cv2.THRESH_BINARY)
-    
-    
+    #Yellow color has range of 25 to 60
+    finalFrame = cv2.inRange(hueChannel, 25, 60)    
     
     cv2.imshow("Image", finalFrame)
     cv2.waitKey(1)
             
     result = cv2.matchTemplate(finalFrame,template,cv2.TM_CCOEFF_NORMED)[0][0]
     
-    #print(result)
+    print(result)
     
-    if result>0.7:
+    if templateThreshold < result:
         return True
     else:
         return False
+
+
+def remainingTime(frame):
+    '''
+    Parameters
+    ----------
+    frame : numpy array of image
+    verbose : bool, optional
+    If true will print result and show detection image. Default is False.
+
+    Returns
+    -------
+    None
     
+    Updates
+    -------
+    global remaining_time : int/None
+        remaining time in seconds. If cant detect will return none
+
+    '''
+    global remaining_time
+    
+    xmin = numberPos[0][0][0] + int(box*3.8)
+    ymin = numberPos[0][0][1] - int(box*3.4)
+    xmax = xmin + int(box*1.2)
+    ymax = ymin + int(box*1)
+    finalFrame = frame[ymin:ymax, xmin:xmax]
+
+    # cv2.imshow("Time", finalFrame)
+    # cv2.waitKey(1)
+            
+    number = getOcrResult(finalFrame, False)
+    #number is in form --> "m:ss"
+    
+    if len(number)==4:#4 char in string
+        try:
+            minute = int(number[0])
+            second = int(number[2:])
+            remaining_time = minute*60 + second
+            
+        except:
+            remaining_time = None
+    else:
+        remaining_time = None
+
+  
+def rotate_image(image, angle):
+    if(angle<0):
+        angle= 360+angle
+    image_center = tuple(np.array(image.shape[1::-1]) / 2)
+    rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+    result = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
+    return result
+
 #%%
 
 
-capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+#capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 while(True):
-    _, frame = capture.read()
+    frame = cameraFeed.frame
+    frame = rotate_image(frame, rotation)#rotate image to allign screen
     if isStart(frame):
+        cv2.destroyAllWindows()
         break
 print("Game Start")
 
-time.sleep(1)
-_, frame = capture.read()
-cv2.imshow("Image", frame)
-cv2.waitKey(1)
-currentNum = getCurrentNumber(frame, True)
+
+time.sleep(0.8)
+frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
+# cv2.imshow("Image", frame)
+# cv2.waitKey(1)
+currentNum = getCurrentNumber(frame, verbose= True)
    
 tic = time.time()
 getBoardNumbers(frame, True)
 print(time.time()-tic)
 
+
+#start time keeping in seperate thread to not waste main loop time
+remaining_time = 120
+timeThread = Thread(target=remainingTime, args=(rotate_image(cameraFeed.frame, rotation), ))#feed rotation corrected frame
+timeThread.daemon = True
+
+
 while(True):
-    _, frame = capture.read()
+    timeThread.start() #update remaining time in separate thread
+    
+    frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
     lastNumber = currentNum
     currentNum = getCurrentNumber(frame)
+    
     if lastNumber != currentNum and currentNum.isnumeric():
         
-        pos = np.where(numbers==currentNum)
+        pos = np.where(numbers==currentNum)#if current number in board
         if len(pos[0]):
             X, Y = pos[0][0], pos[1][0]
             
-            if numberPressed[X][Y] ==0:#if not already pressed
-                numberPressed[X][Y] = 1 #keep track which number is pressed
-                
+            if numberPressed[X][Y] ==0:#if not already pressed           
                 dataToSend = str(X) + ',' + str(Y)
                 print(currentNum, end='')
-                print("Sent data > ",dataToSend)
-                #ser.write(bytes(dataToSend, 'utf-8'))
+                print(" at location > ",dataToSend)
+                r.sendBoxCoords(X, Y)
+                
+                numberPressed[X][Y] = 1 #keep track which number is pressed
+                
         else:
+            print(currentNum)
             #print("Skiping ", currentNum)
             
             #==============Handle bonus buttons=========
             
-            #Since nothing to do in this turn, robot is free to check for bonus buttons
+            #Since cuurent number not in board, robot is free to check for bonus buttons
             bonusResult = getBonusButtons(frame)
             if bonusResult[0] != 'Blank':
                 print(bonusResult[0])
                 #command to press bonus button
-                #ser.write(bytes("M", 'utf-8'))
-                # time.sleep(3)
+                r.pressBonus1()
                 
-                
-                # while(True):#wait for confirmation
-                    # if ser.readline() == 'ok':
-                    #     break
-                
-                _, frame = capture.read()
-                if bonusResult[0] == 'G':#if bonus is guess
+
+
+                frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
+                if bonusResult[0] == 'G':#if bonus is guess(Gimme More)
                     P,Q,R,S = getGuessNumbers(frame, verbose = True)
                     bestGuess = checkBestNextNumber_withGiven([P,Q,R,S])
                     print("Best Guess --> ", bestGuess)
@@ -440,16 +503,19 @@ while(True):
                         X, Y = pos[0][0], pos[1][0]
                         
                         if numberPressed[X][Y] ==0:#if not already pressed
-                            numberPressed[X][Y] = 1 #keep track which number is pressed
-                            
                             dataToSend = str(X) + ',' + str(Y)
                             print(bestGuess, end='')
-                            print("Sent data > ",dataToSend)
-                            #ser.write(bytes(dataToSend, 'utf-8'))
+                            print(" at location > ",dataToSend)
+                            print("")#print extra line
+                            r.sendBoxCoords(X, Y)
+                            
+                            numberPressed[X][Y] = 1 #keep track which number is pressed
+                            
                           
                             
                           
-                elif bonusResult[0] == 'g':#if bonus is gem
+                elif bonusResult[0] == 'g':#if bonus is gem(diamond)
+                    #best guess from all the board numbers to make it close to bingo
                     bestGuess = checkBestNextNumber_withGiven(numbers.flatten())
                     print("Best Guess --> ", bestGuess)
                     #========Now press this best guessed number
@@ -458,31 +524,41 @@ while(True):
                         X, Y = pos[0][0], pos[1][0]
                         
                         if numberPressed[X][Y] ==0:#if not already pressed
-                            numberPressed[X][Y] = 1 #keep track which number is pressed
-                            
                             dataToSend = str(X) + ',' + str(Y)
                             print(bestGuess, end='')
-                            print("Sent data > ",dataToSend)
-                            #ser.write(bytes(dataToSend, 'utf-8'))
-                
-      
-    if isBingo(frame):
-        print("Press Bingo")
-        print("")
-        #ser.write(bytes("B", 'utf-8'))
+                            print(" at location > ",dataToSend)
+                            print("")#print extra line
+                            r.sendBoxCoords(X, Y)
+                            
+                            numberPressed[X][Y] = 1 #keep track which number is pressed
+                            
+    
+    #if time is less than 2 seconds check for bingo pressability
+    print(remaining_time)
+    if remaining_time !=None:
+        if remaining_time <2:
+            if isBingo(frame):
+                print("Pressing Bingo")
+                print("")
+                r.pressBingo()
+                #end the game
+                break
+            #end the game if not bingo too
+            break
         
         
-    
-    
-capture.release()
+print("Game finished")
+        
+cameraFeed.close()
 
 
+#%%
 '''
-capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-_, frame = capture.read()
-eq=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-gauss = cv2.adaptiveThreshold(eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 17, 45)
-cv2.imshow("Image", gauss)
-
-capture.release()
-#cv2.destroyAllWindows()'''
+while True:
+    frame = cameraFeed.frame
+    frame = rotate_image(frame, rotation)#rotate image to allign screen
+    remaining = remainingTime(frame)
+    print(remaining)
+    #cv2.imshow("Image", frame)
+    #cv2.waitKey(1)
+'''
