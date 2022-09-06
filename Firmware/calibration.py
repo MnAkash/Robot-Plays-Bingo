@@ -2,8 +2,21 @@
 import cv2
 import numpy as np
 import pandas as pd
-import time
+import time, math
 import yaml
+from paddleocr import PaddleOCR
+from Robot import robot
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
+# r = robot()
+# time.sleep(2)
+# r.goHome()
+
+
 
 class Point:
     def __init__(self, x,y):
@@ -49,6 +62,47 @@ def getContours(img, imgContour):
     return squares, circles
 
 
+def rotate_image(image, angle):
+    if(angle<0):
+        angle= 360+angle
+    image_center = tuple(np.array(image.shape[1::-1]) / 2)
+    rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+    result = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
+    return result
+
+def getRotation(frame):
+    '''
+    Using Top left '5' and Bottom Left '70' to get camera rotation
+    
+    input : camera frame
+    output : rotation in degree to align mobile straight
+    '''
+    topLeft = '4'
+    topRight = '61'
+    print("Extracting camera rotation")
+    reader = PaddleOCR(lang='en', show_log = False)
+    result = reader.ocr(frame, cls=False)
+       
+    
+    Xcoord = [None, None] #1st loc for topLeft 2nd for topRight
+    Ycoord = [None, None]
+    
+    for res in result:
+        if res[1][0] == topLeft: 
+            Xcoord[0] = res[0][0][0]
+            Ycoord[0] = res[0][0][1]
+        
+        elif res[1][0] == topRight:
+            Xcoord[1] = res[0][0][0]
+            Ycoord[1] = res[0][0][1]
+    
+    try:
+        #Considering opencv y axis starts from top left corner
+        rotation = math.atan2(Ycoord[0]-Ycoord[1], Xcoord[1]-Xcoord[0])
+        rotation = -math.degrees(rotation)
+        return rotation
+    except:
+        raise TypeError("Try alligning the screen")
 
 def calibrate():
     '''
@@ -64,6 +118,7 @@ def calibrate():
     capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     allSquares = []
     
+
     while True:
         #Wait before 'c' button pressed
         _, img = capture.read()
@@ -71,11 +126,17 @@ def calibrate():
         if cv2.waitKey(1) & 0xFF == ord('c'):
             #cv2.destroyAllWindows()
             break
+        
+    rotation = getRotation(img)
+    print("Camera Rotation :", rotation)
+    print("Calibrating...")
+
     start = time.time()  
     while (time.time()-start) < 3:
     
         _, img = capture.read()
-    
+        img = rotate_image(img, rotation)#rotate image to allign screen
+        
         imgContour = img.copy()
         
         imgGray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
@@ -110,7 +171,7 @@ def calibrate():
     
     #=====================================Calculating random number appearing location
     
-    #3.85, -1.85 is the location of relative loaction of random number appearing from initial position
+    #3.85, -1.85 is the relative loaction of random number appearing from initial position
     currentNumPos =  unitVector*np.array([3.75, -1.8]) + initialPos
     #append end point to currentNumPos array
     currentNumPos = np.append(currentNumPos, currentNumPos+np.array([box*1.3, box*1.35]))
@@ -120,12 +181,12 @@ def calibrate():
     
     #=====================================Calculating two bonus buttons location
     
-    #0.45, 5.8 is the location of relative loaction of 1st bonus button from initial position
+    #0.45, 5.8 is the relative loaction of 1st bonus button from initial position
     bonusButton1 =  unitVector*np.array([0.45, 5.5]) + initialPos
     #append end point of 1st bonus button to bonusButton1 array
     bonusButton1 = np.append(bonusButton1, bonusButton1+np.array([box*0.7, box*0.7]))
     
-    #1.5, 5.8 is the location of relative loaction of 2nd bonus button from initial position
+    #1.5, 5.8 is the relative loaction of 2nd bonus button from initial position
     bonusButton2 =  unitVector*np.array([1.5, 5.5]) + initialPos
     #append end point of 2nd bonus button to bonusButton1 array
     bonusButton2 = np.append(bonusButton2, bonusButton2+np.array([box*0.7, box*0.7]))
@@ -140,7 +201,7 @@ def calibrate():
     
     #=====================================Calculating bingo button location
     
-    #2.9, 5.6 is the location of relative loaction of bingo button from initial position
+    #2.9, 5.6 is the relative loaction of bingo button from initial position
     bingoButtton =  unitVector*np.array([2.9, 5.6]) + initialPos
     #append end point to bingoButtton array
     bingoButtton = np.append(bingoButtton, bingoButtton+np.array([box*1.9, box*0.8]))
@@ -171,28 +232,40 @@ def calibrate():
     cv2.waitKey(3000)
     cv2.destroyAllWindows()
 
-    return numberPos, box, currentNumPos, bonusButtons, bingoButtton
+    return numberPos, box, currentNumPos, bonusButtons, bingoButtton, rotation
 
 def getCalibationData():
     with open('calibration.yaml') as f:
         data = yaml.load(f, Loader=yaml.Loader)
-    numberPos, box, currentNumPos, bonusButtons, bingoButton  = data['numberPos'],data['box'],data['currentNumPos'],data['bonusButtons'],data['bingoButton']
+    numberPos, box, currentNumPos, bonusButtons, bingoButton, rotation  = data['numberPos'],data['box'],data['currentNumPos'],data['bonusButtons'],data['bingoButton'], data['rotation']
     
-    return numberPos, box, currentNumPos, bonusButtons, bingoButton
+    return numberPos, box, currentNumPos, bonusButtons, bingoButton, rotation
 
 
 
 if __name__ == '__main__':
-    numberPos, box, currentNumPos, bonusButtons, bingoButton = calibrate()
+    try:
+        numberPos, box, currentNumPos, bonusButtons, bingoButton, rotation = calibrate()
+        print("Calibration Succesfull")
+        
+        dictionary = {"numberPos": numberPos,
+                      "box":box,
+                      "currentNumPos": currentNumPos,
+                      "bonusButtons":bonusButtons,
+                      "bingoButton":bingoButton,
+                      "rotation" : rotation
+            }
+        
+        with open('calibration.yaml', 'w') as f:
+            yaml.dump(dictionary, f)
+            
+            
+    except Exception as e:
+        print(e)
+        print("Calibration Failed")
+        cv2.destroyAllWindows()
+        
     
-    dictionary = { "numberPos": numberPos,
-                  "box":box,
-                  "currentNumPos": currentNumPos,
-                  "bonusButtons":bonusButtons,
-                  "bingoButton":bingoButton
-        }
     
-    with open('calibration.yaml', 'w') as f:
-        yaml.dump(dictionary, f)
-    
-    
+
+
