@@ -10,7 +10,7 @@ Serial myPort;
 
 void setup()  {
   size(500, 250);
-  myPort = new Serial(this, "COM8", 115200);
+  myPort = new Serial(this, "COM5", 115200);
   cp5 = new ControlP5(this);
 
 cp5.addSlider("pan")
