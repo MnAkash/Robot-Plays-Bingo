@@ -31,8 +31,8 @@ void setup() {
   servo2.attach(pinServo2);
   servo1.attach(pinServo1);
 
-  servo2.write(90);
-  servo1.write(90);
+  home();
+  
 }
 
 void loop() {
@@ -70,21 +70,30 @@ void loop() {
         v = 0;
         break;
 
+      case 'u':
+        solenoidUp();
+        break;
+
+      case 'd':
+        solenoidDown();
+        break;
+
     }
   }
 }
 
 
 void moveTo(int x, int y){
-  inverse_kinematics(x, y);
 //  solenoidUp();
 //  delay(50);
+  inverse_kinematics(x, y);
   servo(angle1, angle2);
-//  delay(200);
+  //delay(200);
 //  solenoidDown();
 //  delay(200);
 //  solenoidUp();
 //  delay(200);
+  //home();
 }
 
 
@@ -129,7 +138,10 @@ void solenoidUp(){
 void solenoidDown(){
   digitalWrite(solenoid, LOW);
 }
-
+void home(){
+  inverse_kinematics(0, 55);
+  servo(angle1, angle2);
+}
 void servo(int angle1_value, int angle2_value){
   servo1.write(angle1_value);
   servo2.write(angle2_value);
