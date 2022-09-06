@@ -2,9 +2,17 @@
 import serial, time
 import serial.tools.list_ports
 
-        
+    
 class robot:
     def __init__(self, baudrate=115200):
+        self.home = [0,55]
+        self.bingoCoords = [14,10]
+        self.bonusCoords1 = [14,23]
+        self.bonusCoords2 = [14,33]
+        #Data points of four corner of number board with calibrated servo value
+        self.servoPoints_X = [(0, 0, 85),(0, 4, 84),(4, 0, 30),(4, 4, 33)]
+        self.servoPoints_Y = [(0, 0, 48),(0, 4, 5),(4, 0, 38),(4, 4, 0)]
+        
         try:
             ports = serial.tools.list_ports.comports()
             for port in ports:
@@ -17,8 +25,11 @@ class robot:
                         self.arduino.open()
                         
                     print("Connected to robot at port : ", port.device)
+                    self.isOpen = True
+                    
+            self.goHome()
             
-            self.isOpen = True
+            
         except Exception as e:
             self.isOpen = False
             print(e)
@@ -26,15 +37,6 @@ class robot:
             #exit()
             
         
-        self.home = [0,55]
-        self.bingoCoords = [14,10]
-        self.bonusCoords1 = [14,23]
-        self.bonusCoords2 = [14,33]
-        
-        
-        #Data points of four corner of number board with calibrated servo value
-        self.servoPoints_X = [(0, 0, 85),(0, 4, 84),(4, 0, 30),(4, 4, 33)]
-        self.servoPoints_Y = [(0, 0, 48),(0, 4, 5),(4, 0, 38),(4, 4, 0)]
         
         
         
@@ -69,56 +71,84 @@ class robot:
                 q22 * (x - x1) * (y - y1)
                ) / ((x2 - x1) * (y2 - y1) + 0.0)
 
+    
+    def solenoidUP(self):
+        if self.isOpen:
+            self.arduino.write(bytes("u", 'utf-8'))
             
-    def sendCoords(self, X, Y):        
+    def solenoidDOWN(self):
+        if self.isOpen:
+            self.arduino.write(bytes("d", 'utf-8'))
+     
+    def sendCoords(self, X, Y):
+        #X, Y are global coordinates       
         dataToSend = str(int(X)) + "x" + str(int(Y)) + "y"
-        if self.isOpen:self.arduino.write(bytes(dataToSend, 'utf-8'))
+        if self.isOpen:
+            self.arduino.write(bytes(dataToSend, 'utf-8'))
+            
+    def goHome(self):
+        x = self.home[0]
+        y= self.home[1]
         
+        self.sendCoords(x, y)
+        time.sleep(.5)
+    
+    def pressAndGoHome(self, X, Y):
+        self.solenoidUP()
+        time.sleep(0.05)
+        self.sendCoords(X, Y)
+        time.sleep(.8)#time to reach
+        self.solenoidDOWN()
+        time.sleep(0.2)#press for this long
+        self.solenoidUP()#release
+        time.sleep(0.05)
+        self.goHome()#after release go home
+        self.solenoidDOWN()
+            
     def sendBoxCoords(self, box_X, box_Y):
         #Will receive coordinate for number box
         x = self.bilinear_interpolation(box_X, box_Y, self.servoPoints_X)
         y = self.bilinear_interpolation(box_X, box_Y, self.servoPoints_Y)
         
-        self.sendCoords(x, y)
+        self.pressAndGoHome(x, y)
         
         
     def pressBingo(self):
         x = self.bingoCoords[0]
         y= self.bingoCoords[1]
         
-        self.sendCoords(x, y)
+        print("Pressing Bingo")
+        self.pressAndGoHome(x, y)
         
     def pressBonus1(self):
         x = self.bonusCoords1[0]
         y= self.bonusCoords1[1]
         
-        self.sendCoords(x, y)
+        print("Pressing Bonus1")
+        self.pressAndGoHome(x, y)
     
     def pressBonus2(self):
         x = self.bonusCoords2[0]
         y= self.bonusCoords2[1]
         
-        self.sendCoords(x, y)
+        print("Pressing Bonus2")
+        self.pressAndGoHome(x, y)
         
-    def pressHome(self):
-        x = self.home[0]
-        y= self.home[1]
-        
-        self.sendCoords(x, y)
+    
 
 
 # r = robot()
 # time.sleep(2)
-# r.pressHome()
+# r.goHome()
 # time.sleep(2)
 # for i in range(5):
 #     for j in range(5):
 #         r.sendBoxCoords(i, j)
 #         time.sleep(.8)
-#         r.pressHome()
+#         r.goHome()
 #         time.sleep(.8)
         
-# r.pressHome()
+# r.goHome()
 
 
 
