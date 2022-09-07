@@ -27,6 +27,7 @@ import imutils
 import numpy as np
 from paddleocr import PaddleOCR
 from threading import Thread
+from concurrent.futures import ThreadPoolExecutor
 from calibration import getCalibationData
 from Robot import robot
 from cameraHandle import VideoStreamWidget
@@ -111,24 +112,48 @@ def getBoardNumbers(frame, verbose=False):
     Store all ocr result of number board in 'numbers' variable
 
     '''
+    global numbers
     
-    for i in range(5):
-        for j in range(5):
-            if i==2 and j==2:continue#Skip middle gem logo
-            
-            x = numberPos[i][j][0]
-            y = numberPos[i][j][1]
-            
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            finalFrame = frame_gray[y:y+box, x:x+box]
-            
-            # zoom = int(box*0.1) #To remove 10% borders
-            # finalFrame = finalFrame[zoom:-zoom, zoom:-zoom]
-            
-            text = getOcrResult(finalFrame, verbose)
-            
-            numbers[i][j] = text
+    board_locs = [(0,0), (0,1), (0,2), (0,3), (0,4),
+             (1,0), (1,1), (1,2), (1,3), (1,4),
+             (2,0), (2,1),        (2,3), (2,4),#Skip middle gem logo
+             (3,0), (3,1), (3,2), (3,3), (3,4),
+             (4,0), (4,1), (4,2), (4,3), (4,4)]
 
+    
+    #nested function for multithreading advantage
+    def fragmentedOCR(loc, verbose=False):
+        global numbers
+        i, j = loc#loc is tuple of (i,j)
+        x = numberPos[i][j][0]
+        y = numberPos[i][j][1]
+        
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        finalFrame = frame_gray[y:y+box, x:x+box]
+        
+        # zoom = int(box*0.1) #To remove 10% borders
+        # finalFrame = finalFrame[zoom:-zoom, zoom:-zoom]
+        
+        text = getOcrResult(finalFrame, verbose)
+        numbers[i][j] = text
+    
+    '''
+    #executing a threadpool to run all ocr at once
+    ocrThread = []
+    for board_loc in board_locs:
+        t = Thread(target=fragmentedOCR, args=(board_loc,))
+        t.start()
+        ocrThread.append(t)
+    
+    for thread in ocrThread:
+        thread.join()
+    '''
+    tic = time.time()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        executor.map(fragmentedOCR , board_locs)
+        executor.shutdown(wait=True)
+    print(time.time()-tic)
+    
 
 def getColor(hist, verbose = False):    
     value = np.argmax(hist)
@@ -138,10 +163,10 @@ def getColor(hist, verbose = False):
         value = np.argmax(hist)+1
         
         
-    if value in range(1,24):
+    if value in range(1,26):
         if verbose:print("Red")
         return 'B'
-    elif value in range(24,70):
+    elif value in range(26,70):
         if verbose:print("Yellow")
         return 'G'
     elif value in range(70,92):
@@ -176,7 +201,7 @@ def getCurrentNumber(frame, verbose = False, showHistogram=False):
     ymin = currentNumPos[1]
     xmax = currentNumPos[2]
     ymax = currentNumPos[3]
-    finalFrame = frame[ymin:ymax, xmin:xmax]
+    finalFrame = frame[ymin+int(box*0.2):ymax, xmin:xmax]
     
     
     
@@ -192,7 +217,7 @@ def getCurrentNumber(frame, verbose = False, showHistogram=False):
     letter = getColor(hist)
     
     
-    #finalFrame = cv2.cvtColor(finalFrame, cv2.COLOR_BGR2GRAY)
+    finalFrame = cv2.cvtColor(finalFrame, cv2.COLOR_BGR2GRAY)
     cv2.imshow("Current Number", finalFrame)
     cv2.waitKey(1)
     number = getOcrResult(finalFrame, verbose)
@@ -374,7 +399,7 @@ def isStart(frame):
         return False
 
 
-def remainingTime(frame):
+def remainingTime():
     '''
     Parameters
     ----------
@@ -394,28 +419,31 @@ def remainingTime(frame):
     '''
     global remaining_time
     
-    xmin = numberPos[0][0][0] + int(box*3.8)
-    ymin = numberPos[0][0][1] - int(box*3.4)
-    xmax = xmin + int(box*1.2)
-    ymax = ymin + int(box*1)
-    finalFrame = frame[ymin:ymax, xmin:xmax]
-
-    # cv2.imshow("Time", finalFrame)
-    # cv2.waitKey(1)
-            
-    number = getOcrResult(finalFrame, False)
-    #number is in form --> "m:ss"
+    while True:
+        frame = rotate_image(cameraFeed.frame, rotation)
+        
+        xmin = numberPos[0][0][0] + int(box*3.8)
+        ymin = numberPos[0][0][1] - int(box*3.4)
+        xmax = xmin + int(box*1.2)
+        ymax = ymin + int(box*1)
+        finalFrame = frame[ymin:ymax, xmin:xmax]
     
-    if len(number)==4:#4 char in string
-        try:
-            minute = int(number[0])
-            second = int(number[2:])
-            remaining_time = minute*60 + second
-            
-        except:
+        # cv2.imshow("Time", finalFrame)
+        # cv2.waitKey(1)
+                
+        number = getOcrResult(finalFrame, False)
+        #number is in form --> "m:ss"
+        
+        if len(number)==4:#4 char in string
+            try:
+                minute = int(number[0])
+                second = int(number[2:])
+                remaining_time = minute*60 + second
+                
+            except:
+                remaining_time = None
+        else:
             remaining_time = None
-    else:
-        remaining_time = None
 
   
 def rotate_image(image, angle):
@@ -445,20 +473,18 @@ frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
 # cv2.waitKey(1)
 currentNum = getCurrentNumber(frame, verbose= True)
    
-tic = time.time()
 getBoardNumbers(frame, True)
-print(time.time()-tic)
 
 
 #start time keeping in seperate thread to not waste main loop time
 remaining_time = 120
-timeThread = Thread(target=remainingTime, args=(rotate_image(cameraFeed.frame, rotation), ))#feed rotation corrected frame
+timeThread = Thread(target=remainingTime, args=())#feed rotation corrected frame
 timeThread.daemon = True
+timeThread.start()
 
 
-while(True):
-    timeThread.start() #update remaining time in separate thread
-    
+
+while(True):   
     frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
     lastNumber = currentNum
     currentNum = getCurrentNumber(frame)
@@ -534,9 +560,9 @@ while(True):
                             
     
     #if time is less than 2 seconds check for bingo pressability
-    print(remaining_time)
     if remaining_time !=None:
         if remaining_time <2:
+            frame = rotate_image(cameraFeed.frame, rotation)
             if isBingo(frame):
                 print("Pressing Bingo")
                 print("")
