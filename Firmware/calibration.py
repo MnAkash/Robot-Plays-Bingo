@@ -5,16 +5,11 @@ import pandas as pd
 import time, math
 import yaml
 from paddleocr import PaddleOCR
-from Robot import robot
 
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
-
-# r = robot()
-# time.sleep(2)
-# r.goHome()
 
 
 
@@ -77,8 +72,8 @@ def getRotation(frame):
     input : camera frame
     output : rotation in degree to align mobile straight
     '''
-    topLeft = '4'
-    topRight = '61'
+    topLeft = '5'
+    topRight = '70'
     print("Extracting camera rotation")
     reader = PaddleOCR(lang='en', show_log = False)
     result = reader.ocr(frame, cls=False)
@@ -104,7 +99,7 @@ def getRotation(frame):
     except:
         raise TypeError("Try alligning the screen")
 
-def calibrate():
+def calibrate(src=0):
     '''
     Calibrate camera with game initial display
     
@@ -115,7 +110,7 @@ def calibrate():
             : bonusButtons  : [xmin1, ymin1, xmax1, ymax1], [xmin2, ymin2, xmax2, ymax2]
             : bingoButtton  : [xmin, ymin, xmax, ymax]
     '''
-    capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    capture = cv2.VideoCapture(src, cv2.CAP_DSHOW)
     allSquares = []
     
 
@@ -244,8 +239,9 @@ def getCalibationData():
 
 
 if __name__ == '__main__':
+    from Robot import robot
     try:
-        numberPos, box, currentNumPos, bonusButtons, bingoButton, rotation = calibrate()
+        numberPos, box, currentNumPos, bonusButtons, bingoButton, rotation = calibrate(src=1)
         print("Calibration Succesfull")
         
         dictionary = {"numberPos": numberPos,
