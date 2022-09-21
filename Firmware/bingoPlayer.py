@@ -17,13 +17,12 @@ Serial Communication with arduino
     
 
 """
+#%%
 print("Loading models...")
 import os, time
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 import cv2
-import easyocr
-import imutils
 import numpy as np
 from paddleocr import PaddleOCR
 from threading import Thread
@@ -33,7 +32,7 @@ from Robot import robot
 from cameraHandle import VideoStreamWidget
 
 r = robot()
-cameraFeed = VideoStreamWidget()#run separate camera thread
+cameraFeed = VideoStreamWidget(src=1)#run separate camera thread
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -232,10 +231,8 @@ def getCurrentNumber(frame, verbose = False, showHistogram=False):
         return number
 
 
-def getBonusButtons(frame, verbose = False):
+def getBonusButtons(verbose = False):
     """
-    
-
     Parameters
     ----------
     frame : numpy array of image
@@ -245,10 +242,11 @@ def getBonusButtons(frame, verbose = False):
     Returns
     -------
     result : list
-        ['type', 'type'], type can be > 'g', 'Blank', 'G' (g for Gem, G for Guess)
+        ['type', 'type'], type can be > 'D', 'Blank', 'G' (D for Diamond, G for Gimme More)
 
     """
-    result = []
+    frame = rotate_image(cameraFeed.frame, rotation)
+    result = ["Blank", "Blank"]
     for i in range(2):
         xmin = bonusButtons[i][0]
         ymin = bonusButtons[i][1]
@@ -267,25 +265,37 @@ def getBonusButtons(frame, verbose = False):
         if verbose:        
             from matplotlib import pyplot as plt
             plt.plot(hist, color='b')
-            plt.title('Image Histogram For Blue Channel GFG')
+            plt.title('Image Histogram For Blue Channel')
             plt.show()
         
         value = np.argmax(hist)
+        #blue can generate maximum noise in histogram.
+        #look for 2nd best occurance to avoide noise
+        hist = np.delete(hist, np.argmax(hist))#delete max occurance
+        value = np.argmax(hist)
+
+
+        if verbose:print(value)
         if value in range(90,108):
-            if verbose:print("Gem")
-            result.append("g")
-        elif value in range(108,120):
+            if verbose:print("Diamond")
+            result[i] = "D"
+        elif value in range(109,117):
             if verbose:print("Blank")
-            result.append("Blank")
-        elif value in range(120,140):
-            if verbose:print("Guess")
-            result.append("G")
+            result[i] = "Blank"
+        elif value in range(117,140):
+            if verbose:print("Gimme More")
+            result[i] = "G"
         else:
-            print("None")
+            print("Bonus Button Not avialable")
             
     return result
 
 def getGuessNumbers(frame, verbose = False):
+    '''
+        1
+    0       3
+        4
+    '''
     x1 = numberPos[0][0][0] + int(box*0.5)
     y1 = numberPos[0][0][1] + int(box*2.5)
     frame1 = frame[y1:y1+box, x1:x1+box]
@@ -315,7 +325,7 @@ def getGuessNumbers(frame, verbose = False):
     R = getOcrResult(frame3, verbose)
     S = getOcrResult(frame4, verbose)
     
-    return P,Q,R,S
+    return [P,Q,R,S]
 
 def checkBestNextNumber_withGiven(givenList):
     '''
@@ -399,7 +409,7 @@ def isStart(frame):
         return False
 
 
-def remainingTime():
+def remainingTime(verbose=False):
     '''
     Parameters
     ----------
@@ -427,23 +437,29 @@ def remainingTime():
         xmax = xmin + int(box*1.2)
         ymax = ymin + int(box*1)
         finalFrame = frame[ymin:ymax, xmin:xmax]
-    
-        # cv2.imshow("Time", finalFrame)
-        # cv2.waitKey(1)
-                
-        number = getOcrResult(finalFrame, False)
-        #number is in form --> "m:ss"
-        
-        if len(number)==4:#4 char in string
-            try:
-                minute = int(number[0])
-                second = int(number[2:])
-                remaining_time = minute*60 + second
-                
-            except:
+
+       
+        try:       
+            number = getOcrResult(finalFrame, False)
+            #number is in form --> "m:ss"
+            
+            if len(number)==4:#4 char in string
+                try:
+                    minute = int(number[0])
+                    second = int(number[2:])
+                    remaining_time = minute*60 + second
+                    
+                except:
+                    remaining_time = None
+            else:
                 remaining_time = None
-        else:
+        except:
             remaining_time = None
+
+        if verbose == True:
+            cv2.imshow("Time", finalFrame)
+            cv2.waitKey(1)
+            print(remaining_time)
 
   
 def rotate_image(image, angle):
@@ -459,6 +475,7 @@ def rotate_image(image, angle):
 
 #capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 while(True):
+    #if cameraFeed.status:
     frame = cameraFeed.frame
     frame = rotate_image(frame, rotation)#rotate image to allign screen
     if isStart(frame):
@@ -484,93 +501,109 @@ timeThread.start()
 
 
 
-while(True):   
-    frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
-    lastNumber = currentNum
-    currentNum = getCurrentNumber(frame)
-    
-    if lastNumber != currentNum and currentNum.isnumeric():
+while(True):
+    if cameraFeed.status:
+        frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
+        lastNumber = currentNum
+        currentNum = getCurrentNumber(frame)
         
-        pos = np.where(numbers==currentNum)#if current number in board
-        if len(pos[0]):
-            X, Y = pos[0][0], pos[1][0]
+        if lastNumber != currentNum and currentNum.isnumeric():
             
-            if numberPressed[X][Y] ==0:#if not already pressed           
-                dataToSend = str(X) + ',' + str(Y)
-                print(currentNum, end='')
-                print(" at location > ",dataToSend)
-                r.sendBoxCoords(X, Y)
+            pos = np.where(numbers==currentNum)#if current number in board
+            if len(pos[0]):
+                X, Y = pos[0][0], pos[1][0]
                 
-                numberPressed[X][Y] = 1 #keep track which number is pressed
+                if numberPressed[X][Y] ==0:#if not already pressed           
+                    dataToSend = str(X) + ',' + str(Y)
+                    print(currentNum, end='')
+                    print(" at location > ",dataToSend)
+                    r.sendBoxCoords(X, Y)
+                    
+                    numberPressed[X][Y] = 1 #keep track which number is pressed
+                    
+            else:
+                #print(currentNum)
+                #print("Skiping ", currentNum)
                 
-        else:
-            print(currentNum)
-            #print("Skiping ", currentNum)
-            
-            #==============Handle bonus buttons=========
-            
-            #Since cuurent number not in board, robot is free to check for bonus buttons
-            bonusResult = getBonusButtons(frame)
-            if bonusResult[0] != 'Blank':
-                print(bonusResult[0])
-                #command to press bonus button
-                r.pressBonus1()
+                #==============Handle bonus buttons=========
                 
+                #Since cuurent number not in board, robot is free to check for bonus buttons
+                bonusResult = getBonusButtons()
+                if bonusResult[0] != 'Blank' or bonusResult[1] != 'Blank':
+                    #if any of bonus button has bonus rewarded
+                    if bonusResult[0] !='Blank':
+                        bonusType = bonusResult[0]
+                        print(bonusType)
+                        r.pressBonus1()#command to press bonus button 1
+                    else:
+                        bonusType = bonusResult[1]
+                        print(bonusType)
+                        r.pressBonus2()#command to press bonus button 2
+
+                    time.sleep(1) #wait 1 second before deciding
 
 
-                frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
-                if bonusResult[0] == 'G':#if bonus is guess(Gimme More)
-                    P,Q,R,S = getGuessNumbers(frame, verbose = True)
-                    bestGuess = checkBestNextNumber_withGiven([P,Q,R,S])
-                    print("Best Guess --> ", bestGuess)
-                    #========Now press this best guessed number
-                    pos = np.where(numbers==bestGuess)
-                    if len(pos[0]):
-                        X, Y = pos[0][0], pos[1][0]
-                        
-                        if numberPressed[X][Y] ==0:#if not already pressed
-                            dataToSend = str(X) + ',' + str(Y)
-                            print(bestGuess, end='')
-                            print(" at location > ",dataToSend)
-                            print("")#print extra line
-                            r.sendBoxCoords(X, Y)
+                    frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
+                    #=========if bonus is Gimme More(guess from 4)
+                    if bonusType == 'G':
+                        gimmeMoreList = getGuessNumbers(frame, verbose = True)
+                        bestGuess = checkBestNextNumber_withGiven(gimmeMoreList)
+                        print("Choosing number --> ", bestGuess)
+                        guessedIndex = gimmeMoreList.index(bestGuess)
+                        r.pressGimmeMore(guessedIndex)#choose the best guessed number
+
+                        #========Now press this best guessed number
+                        pos = np.where(numbers==bestGuess)
+                        if len(pos[0]):
+                            X, Y = pos[0][0], pos[1][0]
                             
-                            numberPressed[X][Y] = 1 #keep track which number is pressed
+                            if numberPressed[X][Y] ==0:#if not already pressed
+                                dataToSend = str(X) + ',' + str(Y)
+                                print(bestGuess, end='')
+                                print(" at location > ",dataToSend)
+                                print("")#print extra line
+                                r.sendBoxCoords(X, Y)
+                                
+                                numberPressed[X][Y] = 1 #keep track which number is pressed
+                                
                             
-                          
+                                
+                    #========if bonus is diamond(choose from full board)        
+                    elif bonusType == 'D':
+                        #best guess from all the board numbers to make it close to bingo
+                        bestGuess = checkBestNextNumber_withGiven(numbers.flatten())
+                        print("Best Guess --> ", bestGuess)
+                        #========Now press this best guessed number
+                        pos = np.where(numbers==bestGuess)
+                        if len(pos[0]):
+                            X, Y = pos[0][0], pos[1][0]
                             
-                          
-                elif bonusResult[0] == 'g':#if bonus is gem(diamond)
-                    #best guess from all the board numbers to make it close to bingo
-                    bestGuess = checkBestNextNumber_withGiven(numbers.flatten())
-                    print("Best Guess --> ", bestGuess)
-                    #========Now press this best guessed number
-                    pos = np.where(numbers==bestGuess)
-                    if len(pos[0]):
-                        X, Y = pos[0][0], pos[1][0]
-                        
-                        if numberPressed[X][Y] ==0:#if not already pressed
-                            dataToSend = str(X) + ',' + str(Y)
-                            print(bestGuess, end='')
-                            print(" at location > ",dataToSend)
-                            print("")#print extra line
-                            r.sendBoxCoords(X, Y)
-                            
-                            numberPressed[X][Y] = 1 #keep track which number is pressed
-                            
-    
-    #if time is less than 2 seconds check for bingo pressability
-    if remaining_time !=None:
-        if remaining_time <2:
-            frame = rotate_image(cameraFeed.frame, rotation)
-            if isBingo(frame):
-                print("Pressing Bingo")
-                print("")
-                r.pressBingo()
-                #end the game
+                            if numberPressed[X][Y] ==0:#if not already pressed
+                                dataToSend = str(X) + ',' + str(Y)
+                                print(bestGuess, end='')
+                                print(" at location > ",dataToSend)
+                                print("")#print extra line
+                                r.sendBoxCoords(X, Y)
+                                
+                                numberPressed[X][Y] = 1 #keep track which number is pressed
+                                
+        
+        #if time is less than 2 seconds check for bingo pressability
+        if remaining_time !=None:
+            if remaining_time <2:
+                frame = rotate_image(cameraFeed.frame, rotation)
+                if isBingo(frame):
+                    print("Pressing Bingo")
+                    print("")
+                    r.pressBingo()
+                    #end the game
+                    break
+                else:
+                    print("No Bingo")
+                    #end the game
+                    break
+                #end the game if not bingo too
                 break
-            #end the game if not bingo too
-            break
         
         
 print("Game finished")
@@ -579,12 +612,7 @@ cameraFeed.close()
 
 
 #%%
-'''
-while True:
-    frame = cameraFeed.frame
-    frame = rotate_image(frame, rotation)#rotate image to allign screen
-    remaining = remainingTime(frame)
-    print(remaining)
-    #cv2.imshow("Image", frame)
-    #cv2.waitKey(1)
-'''
+# remaining_time = 120
+# remainingTime(True)
+
+# %%
