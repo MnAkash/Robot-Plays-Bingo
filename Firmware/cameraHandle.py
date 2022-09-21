@@ -5,6 +5,8 @@ import cv2, time
 class VideoStreamWidget(object):
     def __init__(self, src=0):
         self.capture = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+        if self.capture.isOpened():
+                (self.status, self.frame) = self.capture.read()
         # Start the thread to read frames from the video stream
         self.thread = Thread(target=self.update, args=())
         self.thread.daemon = True
