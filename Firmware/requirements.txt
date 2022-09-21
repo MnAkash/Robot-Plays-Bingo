@@ -1,13 +1,14 @@
-easyocr==1.5.0
-pyserial
+pip install pyserial
+pip install opencv-python==4.6.0.66
+pip install opencv-contrib-python==4.6.0.66
+pip install PyYAML
+conda install -c anaconda pandas
 
 pip install python-Levenshtein-wheels
 or
 conda install -c conda-forge python-levenshtein
 
 
-paddlepaddle -i https://mirror.baidu.com/pypi/simple
-paddlepaddle paddleocr
+python -m pip install paddlepaddle==2.3.2 -i https://pypi.tuna.tsinghua.edu.cn/simple
+python -m pip install paddleocr
 
-opencv-contrib-python==4.6.0.66
-opencv-python==4.6.0.66
