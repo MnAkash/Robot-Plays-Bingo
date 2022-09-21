@@ -6,9 +6,9 @@ import serial.tools.list_ports
 class robot:
     def __init__(self, baudrate=115200):
         self.home = [0,55]
-        self.bingoCoords = [14,10]
-        self.bonusCoords1 = [14,23]
-        self.bonusCoords2 = [14,33]
+        self.bingoCoords = [14,7]
+        self.bonusCoords1 = [14,35]
+        self.bonusCoords2 = [14,23]
         #Data points of four corner of number board with calibrated servo value
         self.servoPoints_X = [(0, 0, 85),(0, 4, 84),(4, 0, 30),(4, 4, 33)]
         self.servoPoints_Y = [(0, 0, 48),(0, 4, 5),(4, 0, 38),(4, 4, 0)]
@@ -97,7 +97,7 @@ class robot:
         self.solenoidUP()
         time.sleep(0.05)
         self.sendCoords(X, Y)
-        time.sleep(.8)#time to reach
+        time.sleep(.5)#time to reach
         self.solenoidDOWN()
         time.sleep(0.2)#press for this long
         self.solenoidUP()#release
@@ -134,25 +134,57 @@ class robot:
         print("Pressing Bonus2")
         self.pressAndGoHome(x, y)
         
-    
+    def pressGimmeMore(self, position):
+        '''
+            1
+        0       2
+            3
+        '''
+        if position == 0:
+            self.sendBoxCoords(2.5, 0.5)
+        elif position == 1:
+            self.sendBoxCoords(1,2)
+        elif position == 2:
+            self.sendBoxCoords(2.5,3.5)
+        elif position == 3:
+            self.sendBoxCoords(4,2)
 
+    def testNumberBoard(self):
+        for i in range(5):
+            for j in range(5):
+                r.sendBoxCoords(i, j)
+                #time.sleep(.4)
+                r.goHome()
 
-# r = robot()
-# time.sleep(2)
-# r.goHome()
-# time.sleep(2)
-# for i in range(5):
-#     for j in range(5):
-#         r.sendBoxCoords(i, j)
-#         time.sleep(.8)
-#         r.goHome()
-#         time.sleep(.8)
-        
-# r.goHome()
+    def testFullBoard(self):
+        print("Pressing Top Left")
+        r.sendBoxCoords(0, 0)
+        print("Pressing Top Right")
+        r.sendBoxCoords(0, 4)
+        print("Pressing Bottom Left")
+        r.sendBoxCoords(4, 0)
+        print("Pressing Bottom Right")
+        r.sendBoxCoords(4, 4)
 
+        r.pressBonus1()
+        r.pressBonus2()
+        r.pressBingo()
 
+        # print("Pressing Gimme More locations....")
+        # r.pressGimmeMore(0)
+        # r.pressGimmeMore(1)
+        # r.pressGimmeMore(2)
+        # r.pressGimmeMore(3)
 
+        print("Test Complete!")
 
+if __name__ == '__main__':
+    r = robot()
+    time.sleep(2)
+    r.goHome()
+    time.sleep(.5)
+
+    r.testFullBoard()
 
 
 
