@@ -4,17 +4,13 @@ Created on Mon Jul 11 22:24:58 2022
 
 @author: akash
 
-Serial Communication with arduino
-----------------------------------
-1. For board number selection will send --> x,y
-    Where x and y are coordinate of the number to pressed considering top left as 0,0 and bottom right as 4,4
+GamePlay:
+Numbers needs to be pressed from board as it appears in top right as fast as possible.
+There will be 2 Types of Bonus- Diamond(appears as Diamond sign) and Gimme More(appears as 'G')
+Gimme More will be prioratized over Diamond.
 
-2. Solenoid up   --> 'u'
+After each number appears, irrespective to wheather it exists on the board or not, bonus buttons will be checked.
 
-3. Solenoid down --> 'd'
-
-
-    
 
 """
 #%%
@@ -290,12 +286,15 @@ def getBonusButtons(verbose = False):
             
     return result
 
-def getGuessNumbers(frame, verbose = False):
+def getGuessNumbers(verbose = False):
     '''
         1
     0       3
         4
+    Get 4 numbers (to be guessed from) shown after pressing 'G'
     '''
+    frame = rotate_image(cameraFeed.frame, rotation)
+
     x1 = numberPos[0][0][0] + int(box*0.5)
     y1 = numberPos[0][0][1] + int(box*2.5)
     frame1 = frame[y1:y1+box, x1:x1+box]
@@ -470,6 +469,43 @@ def rotate_image(image, angle):
     result = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
     return result
 
+
+def pressNumber(toPress):
+    '''
+    Parameters
+    ----------
+    toPress : int
+    Number to press
+
+    Returns
+    -------
+    True: if number is in board
+    False: if number is not in board
+    
+    Updates
+    -------
+    global numberPressed : numpy array
+
+    '''
+    global numberPressed
+    pos = np.where(numbers==toPress)#if number is in board, will return location
+    if len(pos[0]):
+        X, Y = pos[0][0], pos[1][0]
+        
+        if numberPressed[X][Y] ==0:#if not already pressed
+            dataToSend = str(X) + ',' + str(Y)
+            print(toPress, end='')
+            print(" at location > ",dataToSend)
+            print("")#print extra line
+            r.sendBoxCoords(X, Y)
+            
+            numberPressed[X][Y] = 1 #keep track which number is pressed
+            
+        return True
+
+    else:
+        return False
+
 #%%
 
 
@@ -509,84 +545,60 @@ while(True):
         
         if lastNumber != currentNum and currentNum.isnumeric():
             
-            pos = np.where(numbers==currentNum)#if current number in board
-            if len(pos[0]):
-                X, Y = pos[0][0], pos[1][0]
-                
-                if numberPressed[X][Y] ==0:#if not already pressed           
-                    dataToSend = str(X) + ',' + str(Y)
-                    print(currentNum, end='')
-                    print(" at location > ",dataToSend)
-                    r.sendBoxCoords(X, Y)
-                    
-                    numberPressed[X][Y] = 1 #keep track which number is pressed
-                    
-            else:
-                #print(currentNum)
+            pressSuccess = pressNumber(currentNum)
+
+            
+            #print(currentNum)
+            #if not pressSuccess:
                 #print("Skiping ", currentNum)
-                
-                #==============Handle bonus buttons=========
-                
-                #Since cuurent number not in board, robot is free to check for bonus buttons
-                bonusResult = getBonusButtons()
-                if bonusResult[0] != 'Blank' or bonusResult[1] != 'Blank':
-                    #if any of bonus button has bonus rewarded
-                    if bonusResult[0] !='Blank':
-                        bonusType = bonusResult[0]
-                        print(bonusType)
-                        r.pressBonus1()#command to press bonus button 1
-                    else:
-                        bonusType = bonusResult[1]
-                        print(bonusType)
-                        r.pressBonus2()#command to press bonus button 2
+            
+            #==============Handle bonus buttons=========
+            
+            #Robot is free to check for bonus buttons
+            #Check if any of bonus button has bonus rewarded
+            bonusResult = getBonusButtons()
 
-                    time.sleep(1) #wait 1 second before deciding
+            #=========if bonus is Gimme More(guess from 4 options)
+            if 'G' in bonusResult:
+                index = bonusResult.index('G')
+                if index==0:
+                    r.pressBonus1()
+                else:
+                    r.pressBonus2()
+
+                time.sleep(0.5) #wait 0.5 second before deciding
+
+                gimmeMoreList = getGuessNumbers(verbose = True)
+                bestGuess = checkBestNextNumber_withGiven(gimmeMoreList)
+                print("Choosing number --> ", bestGuess)
+                guessedIndex = gimmeMoreList.index(bestGuess)
+                r.pressGimmeMore(guessedIndex)#choose the best guessed number
+
+                #========Now press this best guessed number
+                pressNumber(bestGuess)
 
 
-                    frame = rotate_image(cameraFeed.frame, rotation)#rotate image to allign screen
-                    #=========if bonus is Gimme More(guess from 4)
-                    if bonusType == 'G':
-                        gimmeMoreList = getGuessNumbers(frame, verbose = True)
-                        bestGuess = checkBestNextNumber_withGiven(gimmeMoreList)
-                        print("Choosing number --> ", bestGuess)
-                        guessedIndex = gimmeMoreList.index(bestGuess)
-                        r.pressGimmeMore(guessedIndex)#choose the best guessed number
 
-                        #========Now press this best guessed number
-                        pos = np.where(numbers==bestGuess)
-                        if len(pos[0]):
-                            X, Y = pos[0][0], pos[1][0]
-                            
-                            if numberPressed[X][Y] ==0:#if not already pressed
-                                dataToSend = str(X) + ',' + str(Y)
-                                print(bestGuess, end='')
-                                print(" at location > ",dataToSend)
-                                print("")#print extra line
-                                r.sendBoxCoords(X, Y)
-                                
-                                numberPressed[X][Y] = 1 #keep track which number is pressed
-                                
-                            
-                                
-                    #========if bonus is diamond(choose from full board)        
-                    elif bonusType == 'D':
-                        #best guess from all the board numbers to make it close to bingo
-                        bestGuess = checkBestNextNumber_withGiven(numbers.flatten())
-                        print("Best Guess --> ", bestGuess)
-                        #========Now press this best guessed number
-                        pos = np.where(numbers==bestGuess)
-                        if len(pos[0]):
-                            X, Y = pos[0][0], pos[1][0]
-                            
-                            if numberPressed[X][Y] ==0:#if not already pressed
-                                dataToSend = str(X) + ',' + str(Y)
-                                print(bestGuess, end='')
-                                print(" at location > ",dataToSend)
-                                print("")#print extra line
-                                r.sendBoxCoords(X, Y)
-                                
-                                numberPressed[X][Y] = 1 #keep track which number is pressed
-                                
+            #========if bonus is diamond(choose from full board)
+            elif 'D' in bonusResult:
+                index = bonusResult.index('D')
+                if index==0:
+                    r.pressBonus1()
+                else:
+                    r.pressBonus2()
+
+                time.sleep(0.5) #wait 0.5 second before deciding
+
+
+                #best guess from all the board numbers to make it close to bingo
+                bestGuess = checkBestNextNumber_withGiven(numbers.flatten())
+                print("Best Guess --> ", bestGuess)
+
+                #========Now press this best guessed number
+                pressNumber(bestGuess)
+
+
+                                            
         
         #if time is less than 2 seconds check for bingo pressability
         if remaining_time !=None:

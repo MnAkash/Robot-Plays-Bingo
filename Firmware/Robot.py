@@ -1,4 +1,15 @@
 # -*- coding: utf-8 -*-
+'''
+Serial Communication with arduino
+----------------------------------
+1. For board number selection will send --> x,y
+    Where x and y are coordinate of the number to pressed considering top left as 0,0 and bottom right as 4,4
+
+2. Solenoid up   --> 'u'
+
+3. Solenoid down --> 'd'
+'''
+
 import serial, time
 import serial.tools.list_ports
 
