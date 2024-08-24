@@ -102,13 +102,21 @@ class robot:
         y= self.home[1]
         
         self.sendCoords(x, y)
-        time.sleep(.5)
-    
+        time.sleep(.3)
+
+    def goBoardHome(self):
+        #(2,2) is board home
+        x = self.bilinear_interpolation(0, 0, self.servoPoints_X)
+        y = self.bilinear_interpolation(0, 0, self.servoPoints_Y)
+        
+        self.sendCoords(x, y)
+        
+
     def pressAndGoHome(self, X, Y):
         self.solenoidUP()
         time.sleep(0.05)
         self.sendCoords(X, Y)
-        time.sleep(.5)#time to reach
+        time.sleep(.4)#time to reach
         self.solenoidDOWN()
         time.sleep(0.2)#press for this long
         self.solenoidUP()#release
@@ -193,6 +201,7 @@ if __name__ == '__main__':
     r = robot()
     time.sleep(2)
     r.goHome()
+    # r.goBoardHome()
     time.sleep(.5)
 
     r.testFullBoard()
